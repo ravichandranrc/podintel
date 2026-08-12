@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}{{ podcast.title }} — PodIntel{% endblock %}
+{% block content %}
+<article class="podcast-detail">
+    {% if podcast.artwork_url %}<img class="artwork" src="{{ podcast.artwork_url }}" alt="{{ podcast.title }}">{% endif %}
+    <h1>{{ podcast.title }}</h1>
+    {% if podcast.publisher %}<p class="result-meta">{{ podcast.publisher }}</p>{% endif %}
+    {% if podcast.description %}<p>{{ podcast.description }}</p>{% endif %}
+
+    <h2>Episodes</h2>
+    {% for episode in episodes %}
+    <article class="result-card">
+        <h3><a href="/episodes/{{ episode.id }}">{{ episode.title }}</a></h3>
+        <p class="result-meta">
+            {{ episode.duration_seconds|duration }}
+            {% if episode.published_at %}· {{ episode.published_at.strftime('%b %-d, %Y') }}{% endif %}
+            · {{ episode.status }}
+        </p>
+    </article>
+    {% else %}
+    <p class="empty">No episodes yet.</p>
+    {% endfor %}
+</article>
+{% endblock %}

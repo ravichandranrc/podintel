@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}{{ episode.title }} — PodIntel{% endblock %}
+{% block content %}
+<article class="episode-detail">
+    <p class="breadcrumb"><a href="/podcasts/{{ podcast.id }}">{{ podcast.title if podcast else "Podcast" }}</a></p>
+    <h1>{{ episode.title }}</h1>
+    <p class="result-meta">
+        {{ episode.duration_seconds|duration }}
+        {% if episode.published_at %}· {{ episode.published_at.strftime('%b %-d, %Y') }}{% endif %}
+        · status: {{ episode.status }}
+    </p>
+
+    {% if episode.status == "indexed" %}
+    <div class="player">
+        <audio id="player" controls preload="none" src="/episodes/{{ episode.id }}/audio"></audio>
+    </div>
+    {% else %}
+    <p class="empty">This episode is still processing ({{ episode.status }}) — audio/transcript will appear once indexing finishes.</p>
+    {% endif %}
+
+    {% if topics %}
+    <p class="topics">{% for t in topics %}<span class="topic-chip">{{ t }}</span>{% endfor %}</p>
+    {% endif %}
+
+    {% if intelligence %}
+    <section class="summary">
+        <h2>Summary</h2>
+        <p>{{ intelligence.summary }}</p>
+    </section>
+    {% endif %}
+
+    {% if transcript %}
+    <section id="transcript" class="transcript">
+        <h2>Transcript</h2>
+        {% for segment in transcript.segments %}
+        <p class="segment" data-start="{{ segment.start }}">
+            <span class="ts">{{ segment.start|timestamp }}</span> {{ segment.text }}
+        </p>
+        {% endfor %}
+    </section>
+    {% endif %}
+</article>
+
+<script>window.PODINTEL_SEEK_TO = {{ seek_to|tojson }};</script>
+<script src="/static/js/player.js"></script>
+{% endblock %}

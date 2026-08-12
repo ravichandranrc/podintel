@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block title %}PodIntel — Podcast Intelligence{% endblock %}
+{% block content %}
+<section class="hero">
+    <h1>Podcast Intelligence</h1>
+    <p>Search podcasts by topic, person, or technology — including what's actually said, not just titles.</p>
+</section>
+
+<section class="popular-topics">
+    <h2>Popular Topics</h2>
+    <div class="topic-chips">
+        {% for topic in topics %}
+        <a class="topic-chip" href="/search?topic={{ topic.slug }}">{{ topic.name }} <span class="count">{{ topic.episode_count }}</span></a>
+        {% else %}
+        <p class="empty">No episodes indexed yet — add a feed via the admin API to get started.</p>
+        {% endfor %}
+    </div>
+</section>
+{% endblock %}

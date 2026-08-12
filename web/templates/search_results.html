@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block title %}Search: {{ query }} — PodIntel{% endblock %}
+{% block content %}
+<h1>{% if query %}Search: {{ query }}{% else %}Browse episodes{% endif %}</h1>
+
+{% if not results %}
+<p class="empty">No results. Try a different query or filter.</p>
+{% endif %}
+
+{% for hit in results %}
+<article class="result-card">
+    <h2><a href="/episodes/{{ hit.result.episode_id }}{% if hit.relevant_segment %}?t={{ hit.relevant_segment[0]|int }}{% endif %}">{{ hit.result.title }}</a></h2>
+    <p class="result-meta">
+        <a href="/podcasts/{{ hit.result.podcast_id }}">{{ hit.result.podcast_title }}</a>
+        {% if hit.result.publisher %}· {{ hit.result.publisher }}{% endif %}
+        · {{ hit.result.duration_seconds|duration }}
+        {% if hit.result.published_at %}· {{ hit.result.published_at.strftime('%b %-d, %Y') }}{% endif %}
+    </p>
+    {% if hit.result.topics %}
+    <p class="topics">{% for t in hit.result.topics %}<span class="topic-chip">{{ t }}</span>{% endfor %}</p>
+    {% endif %}
+    {% if hit.result.description %}
+    <p class="snippet">{{ hit.result.description|truncate(220) }}</p>
+    {% endif %}
+    {% if hit.relevant_segment %}
+    <p class="relevant-segment">Relevant segment: {{ hit.relevant_segment[0]|timestamp }} – {{ hit.relevant_segment[1]|timestamp }}</p>
+    {% endif %}
+    <p class="actions">
+        <a href="/episodes/{{ hit.result.episode_id }}">Listen</a>
+        <a href="/episodes/{{ hit.result.episode_id }}#transcript">View Transcript</a>
+    </p>
+</article>
+{% endfor %}
+
+<nav class="pagination">
+    {% if page > 1 %}<a href="?q={{ query }}&page={{ page - 1 }}">&larr; Previous</a>{% endif %}
+    {% if results|length == filters.limit %}<a href="?q={{ query }}&page={{ page + 1 }}">Next &rarr;</a>{% endif %}
+</nav>
+{% endblock %}
