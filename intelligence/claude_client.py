@@ -1,13 +1,20 @@
-"""Module 4: LLM-Based Podcast Intelligence — Anthropic Claude client.
+"""Module 4: LLM-Based Podcast Intelligence — Claude client via LangChain.
 
 Sonnet does the final structured-extraction call; Haiku does the cheap
 chunk-summarization (map) step for oversized transcripts (DESIGN.md §6).
 Claude has no embeddings endpoint — vectorization is Module 6's job (Voyage).
+
+Uses langchain-anthropic's ChatAnthropic rather than the anthropic SDK
+directly — same underlying API, but a model-client interface consistent with
+this stack's LangChain tooling, and with_structured_output() gives us a
+parsed Pydantic object back instead of hand-walking tool_use content blocks.
 """
 
 from dataclasses import dataclass
 
-import anthropic
+from langchain_anthropic import ChatAnthropic
+from langchain_core.messages import HumanMessage, SystemMessage
+from pydantic import BaseModel, Field
 
 from common.config import get_settings
 
@@ -34,46 +41,33 @@ from summaries, topics, and keywords — focus on the substantive discussion.
 """
 
 
-def _system_blocks() -> list[dict]:
-    return [
-        {
-            "type": "text",
-            "text": _SYSTEM_PROMPT,
-            "cache_control": {"type": "ephemeral"},
-        }
-    ]
+def _system_message() -> SystemMessage:
+    return SystemMessage(
+        content=[
+            {
+                "type": "text",
+                "text": _SYSTEM_PROMPT,
+                "cache_control": {"type": "ephemeral"},
+            }
+        ]
+    )
 
 
-_EXTRACT_TOOL = {
-    "name": "extract_podcast_intelligence",
-    "description": (
-        "Extract a structured summary, topics, and keywords from a podcast episode transcript."
-    ),
-    "input_schema": {
-        "type": "object",
-        "properties": {
-            "summary": {
-                "type": "string",
-                "description": "A concise 3-5 sentence summary of what this episode discusses.",
-            },
-            "topics": {
-                "type": "array",
-                "items": {"type": "string"},
-                "description": (
-                    "3-8 short topic phrases this episode is about (e.g. 'AI Agents', 'RAG')."
-                ),
-            },
-            "keywords": {
-                "type": "array",
-                "items": {"type": "string"},
-                "description": (
-                    "5-15 specific keywords/entities mentioned (technologies, products, companies)."
-                ),
-            },
-        },
-        "required": ["summary", "topics", "keywords"],
-    },
-}
+class PodcastIntelligence(BaseModel):
+    """Structured-extraction schema — LangChain builds the forced tool-use call
+    and parses the response back into this from the JSON schema below."""
+
+    summary: str = Field(
+        description="A concise 3-5 sentence summary of what this episode discusses."
+    )
+    topics: list[str] = Field(
+        description="3-8 short topic phrases this episode is about (e.g. 'AI Agents', 'RAG')."
+    )
+    keywords: list[str] = Field(
+        description=(
+            "5-15 specific keywords/entities mentioned (technologies, products, companies)."
+        )
+    )
 
 
 @dataclass
@@ -87,56 +81,58 @@ class IntelligenceResult:
 class ClaudeClient:
     def __init__(self) -> None:
         settings = get_settings()
-        self._client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
         self._sonnet_model = settings.claude_sonnet_model
-        self._haiku_model = settings.claude_haiku_model
+
+        sonnet = ChatAnthropic(
+            model=settings.claude_sonnet_model,
+            api_key=settings.anthropic_api_key,
+            max_tokens=1024,
+        )
+        self._haiku = ChatAnthropic(
+            model=settings.claude_haiku_model,
+            api_key=settings.anthropic_api_key,
+            max_tokens=512,
+        )
+        # One tool-use call, forced JSON schema — summary+topics+keywords together,
+        # not three separate calls (DESIGN.md §5 cost control). Built once, not per call.
+        self._extractor = sonnet.with_structured_output(PodcastIntelligence)
 
     async def summarize_chunk(self, chunk_text: str) -> str:
         """Cheap map step for oversized transcripts — Haiku, plain text out."""
-        response = await self._client.messages.create(
-            model=self._haiku_model,
-            max_tokens=512,
-            system=_system_blocks(),
-            messages=[
-                {
-                    "role": "user",
-                    "content": (
+        response = await self._haiku.ainvoke(
+            [
+                _system_message(),
+                HumanMessage(
+                    content=(
                         "Summarize the transcript excerpt below in 3-4 sentences, keeping any "
                         "specific technologies, people, or companies named.\n\n"
                         f"<transcript_excerpt>\n{chunk_text}\n</transcript_excerpt>"
-                    ),
-                }
-            ],
+                    )
+                ),
+            ]
         )
-        return "".join(block.text for block in response.content if block.type == "text")
+        return response.text
 
     async def extract_intelligence(self, transcript_text: str) -> IntelligenceResult:
         """One tool-use call, forced JSON schema — summary+topics+keywords together,
         not three separate calls (DESIGN.md §5 cost control).
         """
-        response = await self._client.messages.create(
-            model=self._sonnet_model,
-            max_tokens=1024,
-            system=_system_blocks(),
-            tools=[_EXTRACT_TOOL],
-            tool_choice={"type": "tool", "name": "extract_podcast_intelligence"},
-            messages=[
-                {
-                    "role": "user",
-                    "content": (
+        result: PodcastIntelligence = await self._extractor.ainvoke(
+            [
+                _system_message(),
+                HumanMessage(
+                    content=(
                         "Analyze the transcript below (or transcript-derived chunk summaries, "
                         "if the episode was long enough to require map-reduce) and extract its "
                         "intelligence.\n\n"
                         f"<transcript>\n{transcript_text}\n</transcript>"
-                    ),
-                }
-            ],
+                    )
+                ),
+            ]
         )
-        tool_use = next(block for block in response.content if block.type == "tool_use")
-        data = tool_use.input
         return IntelligenceResult(
-            summary=data["summary"],
-            topics=data.get("topics", []),
-            keywords=data.get("keywords", []),
+            summary=result.summary,
+            topics=result.topics,
+            keywords=result.keywords,
             model=self._sonnet_model,
         )
